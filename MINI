@@ -1,0 +1,339 @@
+import speech_recognition as sr
+import pyttsx3
+import pywhatkit
+import datetime
+import webbrowser
+import pyjokes
+import psutil
+import pyautogui
+import os
+import ctypes
+import requests
+import smtplib
+import json
+import time
+import re
+import math
+import random
+from transformers import pipeline
+
+# ---------------- CONFIG ----------------
+MY_EMAIL = "suryansh123n@gmail.com"
+MY_EMAIL_PASSWORD = "tgirppfqgarnmiye"  # Gmail app password
+OPENWEATHER_API_KEY = "b302aadce45e52c9409b7721748caf07"
+NEWS_API_KEY = "31652753c8f64171bfdc636a3f32efab"  # Replace with your News API key
+
+apps = {
+    "notepad": "notepad.exe",
+    "calculator": "calc.exe",
+    "chrome": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    "vlc": r"C:\Program Files\VideoLAN\VLC\vlc.exe",
+    "word": r"C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE",
+    "excel": r"C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE",
+    "vscode": r"C:\Users\surya\AppData\Local\Programs\Microsoft VS Code\Code.exe"
+}
+
+# ---------------- MEMORY ----------------
+def load_memory():
+    try:
+        with open("memory.json", "r") as f:
+            data = json.load(f)
+            if "reminders" not in data or not isinstance(data["reminders"], list):
+                data["reminders"] = []
+            return data
+    except:
+        return {"name": None, "last_query": None, "last_note": None, "reminders": []}
+
+memory = load_memory()
+
+def save_memory():
+    with open("memory.json", "w") as f:
+        json.dump(memory, f)
+
+# ---------------- TTS SETUP ----------------
+def speak(text):
+    print("Mini:", text)
+    try:
+        engine = pyttsx3.init("sapi5")
+        voices = engine.getProperty("voices")
+        try:
+            engine.setProperty("voice", voices[1].id)  # female
+        except:
+            engine.setProperty("voice", voices[0].id)
+        engine.setProperty("rate", 175)
+        engine.say(text)
+        engine.runAndWait()
+        engine.stop()
+    except:
+        pass
+
+# ---------------- GREETING ----------------
+def wish_user():
+    speak("Ready")
+
+# ---------------- LISTEN ----------------
+def listen(timeout=5):
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        r.adjust_for_ambient_noise(source, duration=0.5)
+        print("🎤 Listening...")
+        try:
+            audio = r.listen(source, phrase_time_limit=timeout)
+            command = r.recognize_google(audio, language="en-in")
+            print("DEBUG:", command)
+            return command.lower()
+        except:
+            return ""
+
+# ---------------- EMAIL ----------------
+def send_email(receiver, subject, body):
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(MY_EMAIL, MY_EMAIL_PASSWORD)
+        message = f"Subject: {subject}\n\n{body}"
+        server.sendmail(MY_EMAIL, receiver, message)
+        server.quit()
+        speak("Sent")
+    except:
+        speak("Fail")
+
+# ---------------- UTILITIES ----------------
+def tell_joke():
+    joke = pyjokes.get_joke()
+    speak(joke)
+
+def get_weather(city="Delhi"):
+    try:
+        url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={OPENWEATHER_API_KEY}&units=metric"
+        data = requests.get(url).json()
+        temp = data["main"]["temp"]
+        desc = data["weather"][0]["description"]
+        speak(f"{city} {temp}° {desc}")
+    except:
+        speak("Fail")
+
+def get_news():
+    try:
+        url = f"https://newsapi.org/v2/top-headlines?country=in&apiKey={NEWS_API_KEY}"
+        data = requests.get(url).json()
+        articles = data["articles"][:3]
+        for a in articles:
+            speak(a["title"])
+    except:
+        speak("Fail")
+
+def google_search(query):
+    speak("Searching")
+    webbrowser.open(f"https://www.google.com/search?q={query}")
+
+def system_status():
+    battery = psutil.sensors_battery()
+    if battery:
+        speak(f"Battery {battery.percent}%")
+    cpu = psutil.cpu_percent(interval=1)
+    speak(f"CPU {cpu}%")
+
+def take_screenshot():
+    img = pyautogui.screenshot()
+    img.save("screenshot.png")
+    speak("Saved")
+
+def open_app(app_name):
+    if app_name in apps:
+        os.startfile(apps[app_name])
+        speak(f"Opening {app_name}")
+    else:
+        speak("Not found")
+
+def write_note_auto(note):
+    try:
+        open_app("notepad")
+        time.sleep(1.5)
+        pyautogui.typewrite(note, interval=0.05)
+        speak("Done")
+        memory["last_note"] = note
+        save_memory()
+    except:
+        speak("Fail")
+
+# ---------------- REMINDERS ----------------
+def check_reminders():
+    now = time.time()
+    reminders = memory.get("reminders", [])
+    due = [r for r in reminders if isinstance(r, dict) and "time" in r and r["time"] <= now]
+    for r in due:
+        task = r.get("task", "Reminder")
+        speak(task)
+    memory["reminders"] = [r for r in reminders if r["time"] > now]
+    if due:
+        save_memory()
+
+def add_reminder(task, delay=60):
+    remind_time = time.time() + delay
+    memory["reminders"].append({"task": task, "time": remind_time})
+    save_memory()
+    speak("Set")
+
+# ---------------- SYSTEM COMMANDS ----------------
+def shutdown_system():
+    speak("Shutdown")
+    os.system("shutdown /s /t 1")
+
+def lock_system():
+    speak("Locking")
+    ctypes.windll.user32.LockWorkStation()
+
+def restart_system():
+    speak("Restart")
+    os.system("shutdown /r /t 1")
+
+def volume_up():
+    pyautogui.press("volumeup")
+    speak("Up")
+
+def volume_down():
+    pyautogui.press("volumedown")
+    speak("Down")
+
+def volume_mute():
+    pyautogui.press("volumemute")
+    speak("Mute")
+
+# ---------------- CALCULATOR ----------------
+def normalize_expression(expr):
+    expr = expr.lower()
+    expr = expr.replace("plus", "+").replace("minus", "-")
+    expr = expr.replace("times", "*").replace("multiplied by", "*")
+    expr = expr.replace("divide", "/").replace("over", "/")
+    expr = expr.replace("power", "**").replace("square root", "math.sqrt")
+    return re.sub(r"[^0-9\+\-\*\/\.\(\) ]|math.sqrt", "", expr)
+
+def safe_eval(expr):
+    try:
+        normalized = normalize_expression(expr)
+        result = eval(normalized, {"__builtins__": None, "math": math}, {})
+        return result
+    except:
+        return None
+
+def calculate_from_speech(speech_text):
+    result = safe_eval(speech_text)
+    if result is not None:
+        speak(f"{result}")
+    else:
+        speak("Fail")
+
+# ---------------- YOUTUBE CONTROL ----------------
+def youtube_pause_play(): pyautogui.press('space'); speak("Toggled")
+def youtube_replay(): pyautogui.press('0'); speak("Replay")
+def youtube_forward(): pyautogui.press('right'); speak("Forward")
+def youtube_rewind(): pyautogui.press('left'); speak("Back")
+def youtube_volume_up(): pyautogui.press('up'); speak("Up")
+def youtube_volume_down(): pyautogui.press('down'); speak("Down")
+
+# ---------------- NLP ----------------
+nlp = pipeline("zero-shot-classification")
+
+def detect_intent(command):
+    candidate_labels = [
+        "time","calculator","weather","email","youtube","joke","screenshot",
+        "open_app","write_note","shutdown","lock","restart","reminder","status",
+        "youtube_pause","youtube_replay","youtube_forward","youtube_rewind",
+        "youtube_volume_up","youtube_volume_down","news","google_search",
+        "volume_up","volume_down","volume_mute","stop"
+    ]
+    result = nlp(command, candidate_labels)
+    return result["labels"][0]
+
+# ---------------- COMMAND HANDLER ----------------
+def process_command(command):
+    memory["last_query"] = command
+    save_memory()
+    intent = detect_intent(command)
+
+    if intent == "stop":
+        speak("Goodbye")
+        exit()
+
+    elif intent == "time":
+        now = datetime.datetime.now().strftime("%I:%M %p")
+        speak(now)
+
+    elif intent == "youtube":
+        speak("Query?")
+        q = listen(timeout=7)
+        pywhatkit.playonyt(q if q else "music")
+        speak("Playing")
+
+    elif intent == "youtube_pause": youtube_pause_play()
+    elif intent == "youtube_replay": youtube_replay()
+    elif intent == "youtube_forward": youtube_forward()
+    elif intent == "youtube_rewind": youtube_rewind()
+    elif intent == "youtube_volume_up": youtube_volume_up()
+    elif intent == "youtube_volume_down": youtube_volume_down()
+
+    elif intent == "joke": tell_joke()
+    elif intent == "weather":
+        speak("City?")
+        city = listen(timeout=6)
+        get_weather(city if city else "Delhi")
+
+    elif intent == "news": get_news()
+    elif intent == "google_search":
+        speak("What?")
+        query = listen(timeout=7)
+        google_search(query)
+
+    elif intent == "status": system_status()
+    elif intent == "screenshot": take_screenshot()
+    elif intent == "calculator":
+        speak("Say")
+        problem = listen(timeout=10)
+        if problem: calculate_from_speech(problem)
+
+    elif intent == "open_app":
+        app = command.replace("open", "").strip()
+        open_app(app)
+
+    elif intent == "write_note":
+        speak("Say")
+        note = listen(timeout=12)
+        if note: write_note_auto(note)
+
+    elif intent == "email":
+        speak("Subject?")
+        subject = listen(timeout=7)
+        speak("Body?")
+        body = listen(timeout=12)
+        send_email(MY_EMAIL, subject, body)
+
+    elif intent == "reminder":
+        speak("Task?")
+        task = listen(timeout=10)
+        speak("Minutes?")
+        minutes = listen(timeout=5)
+        try: delay = int(minutes) * 60
+        except: delay = 60
+        add_reminder(task, delay)
+
+    elif intent == "shutdown": shutdown_system()
+    elif intent == "lock": lock_system()
+    elif intent == "restart": restart_system()
+    elif intent == "volume_up": volume_up()
+    elif intent == "volume_down": volume_down()
+    elif intent == "volume_mute": volume_mute()
+    else:
+        speak("Unknown")
+
+# ---------------- MAIN LOOP ----------------
+if __name__ == "__main__":
+    wish_user()
+    while True:
+        check_reminders()
+        text = listen(timeout=6)
+        if not text: continue
+        if "mini" in text:
+            speak("Yes")
+            command = listen(timeout=8)
+            if command: process_command(command)
